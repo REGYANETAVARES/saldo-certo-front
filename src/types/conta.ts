@@ -1,37 +1,65 @@
-// Tipos que representam os dados trocados com a API.
+// Tipos que representam os dados da API do Projeto Integrador (Contas a Pagar e a Receber).
 
-/** Situação gravada no back-end. */
-export type Situacao = 'PENDENTE' | 'PAGA'
-
-/** Situação exibida na tela: "VENCIDA" é calculada no front (pendente com data passada). */
-export type SituacaoExibida = Situacao | 'VENCIDA'
+/** Situação devolvida pela API. "VENCIDA" é calculada pela própria API a partir do vencimento. */
+export type StatusConta = 'ABERTA' | 'VENCIDA' | 'PAGA' | 'CANCELADA'
 
 /** Filtro escolhido pelo usuário na lista. */
-export type Filtro = 'TODAS' | SituacaoExibida
+export type Filtro = 'TODAS' | StatusConta
 
-/** Conta como a API devolve (GET). Datas chegam no formato "AAAA-MM-DD". */
-export interface ContaPagar {
-  id: number
+export type FormaPagamento = 'DINHEIRO' | 'PIX' | 'BOLETO' | 'CARTAO' | 'CHEQUE' | 'TRANSFERENCIA' | 'OUTRA'
+
+/** Conta a pagar como a API devolve em GET /api/pagamentos. Datas chegam como "AAAA-MM-DD". */
+export interface Pagamento {
+  titulo: string
   descricao: string
-  fornecedor: string
-  categoria: string
-  vencimento: string
+  fornecedorId: number
+  categoriaId: number
+  cgc: string | null
   valor: number
-  situacao: Situacao
-  dataPagamento: string | null
+  emissao: string
+  vencto: string
+  observacoes: string | null
+  status: StatusConta
+  pagto: string | null
+  formaPagamento: FormaPagamento | null
+  valorQuitado: number | null
 }
 
-/** Dados enviados para cadastrar ou alterar (POST / PUT). */
-export interface ContaPagarForm {
+/** Dados enviados para cadastrar (POST) ou alterar (PUT) uma conta a pagar. */
+export interface PagamentoForm {
+  titulo: string
   descricao: string
-  fornecedor: string
-  categoria: string
-  vencimento: string
+  fornecedorId: number
+  categoriaId: number
   valor: number
+  emissao: string
+  vencto: string
+  observacoes: string | null
 }
 
-/** Formato das mensagens de erro devolvidas pela API. */
+/** Corpo do PATCH /api/pagamentos/{titulo}/quitar */
+export interface QuitacaoForm {
+  data: string
+  formaPagamento: FormaPagamento
+}
+
+/** Fornecedor (GET /api/fornecedores). */
+export interface Fornecedor {
+  registro: number
+  fornecedor: string
+  cgc: string | null
+}
+
+/** Categoria do plano de contas (GET /api/plano-contas). */
+export interface Categoria {
+  planoContas: number
+  conta: string
+  descricao: string | null
+}
+
+/** Formato dos erros da API: "mensagem" pode ser um texto ou uma lista "campo: mensagem". */
 export interface ErroApi {
-  mensagem: string
-  campos?: Partial<Record<keyof ContaPagarForm, string>>
+  status?: number
+  erro?: string
+  mensagem: string | string[]
 }

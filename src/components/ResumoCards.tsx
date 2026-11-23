@@ -1,34 +1,36 @@
-import type { ContaPagar } from '../types/conta'
-import { formatarMoeda, situacaoExibida } from '../utils/formatar'
+import type { Pagamento } from '../types/conta'
+import { emAberto, formatarMoeda } from '../utils/formatar'
 
 interface ResumoCardsProps {
-  contas: ContaPagar[]
+  contas: Pagamento[]
 }
 
 export function ResumoCards({ contas }: ResumoCardsProps) {
-  const somar = (lista: ContaPagar[]) => lista.reduce((total, c) => total + c.valor, 0)
+  const somar = (lista: Pagamento[], campo: (c: Pagamento) => number) =>
+    lista.reduce((total, c) => total + campo(c), 0)
 
-  const emAberto = contas.filter((c) => c.situacao === 'PENDENTE')
-  const vencidas = contas.filter((c) => situacaoExibida(c) === 'VENCIDA')
-  const pagas = contas.filter((c) => c.situacao === 'PAGA')
+  const abertas = contas.filter((c) => emAberto(c.status))
+  const vencidas = contas.filter((c) => c.status === 'VENCIDA')
+  const pagas = contas.filter((c) => c.status === 'PAGA')
 
   return (
     <section className="resumo" aria-label="Resumo das contas">
       <article className="resumo__card resumo__card--destaque">
         <p className="resumo__rotulo">Total a pagar</p>
-        <p className="resumo__valor">{formatarMoeda(somar(emAberto))}</p>
-        <p className="resumo__detalhe">{emAberto.length} conta(s) em aberto</p>
+        <p className="resumo__valor">{formatarMoeda(somar(abertas, (c) => c.valor))}</p>
+        <p className="resumo__detalhe">{abertas.length} conta(s) em aberto</p>
       </article>
 
       <article className="resumo__card">
         <p className="resumo__rotulo">Vencidas</p>
-        <p className="resumo__valor resumo__valor--alerta">{formatarMoeda(somar(vencidas))}</p>
+        <p className="resumo__valor resumo__valor--alerta">{formatarMoeda(somar(vencidas, (c) => c.valor))}</p>
         <p className="resumo__detalhe">{vencidas.length} conta(s) com prazo vencido</p>
       </article>
 
       <article className="resumo__card">
         <p className="resumo__rotulo">Pagas</p>
-        <p className="resumo__valor">{formatarMoeda(somar(pagas))}</p>
+        {/* Para contas pagas, vale o valor quitado (com desconto/acréscimo calculado pela API) */}
+        <p className="resumo__valor">{formatarMoeda(somar(pagas, (c) => c.valorQuitado ?? c.valor))}</p>
         <p className="resumo__detalhe">{pagas.length} conta(s) quitada(s)</p>
       </article>
     </section>

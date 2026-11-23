@@ -1,99 +1,142 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { ApiError, contasApi } from '../services/api'
-import type { ContaPagar, ContaPagarForm } from '../types/conta'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { ApiError, cadastrosApi, pagamentosApi } from '../services/api'
+import type { Categoria, Fornecedor, Pagamento, PagamentoForm } from '../types/conta'
+import { hojeIso, nomeCategoria } from '../utils/formatar'
+import { Campo, Modal } from './Modal'
 
-type CamposErro = Partial<Record<keyof ContaPagarForm, string>>
-
-// No formulário o valor é texto (o usuário pode digitar "98,50"); vira número só ao enviar.
+// No formulário tudo é texto (o usuário pode digitar "98,50"); vira número só ao enviar.
 interface DadosDigitados {
+  titulo: string
   descricao: string
-  fornecedor: string
-  categoria: string
-  vencimento: string
+  fornecedorId: string
+  categoriaId: string
+  emissao: string
+  vencto: string
   valor: string
+  observacoes: string
 }
 
-const VAZIO: DadosDigitados = { descricao: '', fornecedor: '', categoria: '', vencimento: '', valor: '' }
-
-const CATEGORIAS = ['Utilidades', 'Aluguel', 'Suprimentos', 'Impostos', 'Serviços', 'Folha de pagamento']
+type CamposErro = Partial<Record<keyof DadosDigitados, string>>
 
 interface FormularioContaProps {
-  conta: ContaPagar | null // null = nova conta
+  conta: Pagamento | null // null = nova conta
+  fornecedores: Fornecedor[]
+  categorias: Categoria[]
+  onNovoFornecedor: (f: Fornecedor) => void
+  onNovaCategoria: (c: Categoria) => void
   onFechar: () => void
-  onSalvo: (conta: ContaPagar, editando: boolean) => void
+  onSalvo: (conta: Pagamento, editando: boolean) => void
 }
 
-/** Validação no próprio navegador, antes de chamar a API. */
-function validar(dados: DadosDigitados): CamposErro {
+function dadosIniciais(conta: Pagamento | null): DadosDigitados {
+  if (!conta) {
+    return { titulo: '', descricao: '', fornecedorId: '', categoriaId: '', emissao: hojeIso(), vencto: '', valor: '', observacoes: '' }
+  }
+  return {
+    titulo: conta.titulo,
+    descricao: conta.descricao,
+    fornecedorId: String(conta.fornecedorId),
+    categoriaId: String(conta.categoriaId),
+    emissao: conta.emissao,
+    vencto: conta.vencto,
+    valor: String(conta.valor).replace('.', ','),
+    observacoes: conta.observacoes ?? '',
+  }
+}
+
+/** Mesmas regras da API, conferidas antes de enviar. */
+function validar(d: DadosDigitados): CamposErro {
   const erros: CamposErro = {}
-  if (!dados.descricao.trim()) erros.descricao = 'Informe a descrição'
-  if (!dados.fornecedor.trim()) erros.fornecedor = 'Informe o fornecedor'
-  if (!dados.categoria.trim()) erros.categoria = 'Informe a categoria'
-  if (!dados.vencimento) erros.vencimento = 'Informe a data de vencimento'
-  const valor = Number(dados.valor.replace(',', '.'))
-  if (!dados.valor || Number.isNaN(valor) || valor <= 0) erros.valor = 'Informe um valor maior que zero'
+  if (!d.titulo.trim()) erros.titulo = 'Informe o título (número do documento)'
+  else if (d.titulo.trim().length > 20) erros.titulo = 'Máximo de 20 caracteres'
+  if (!d.descricao.trim()) erros.descricao = 'Informe a descrição'
+  if (!d.fornecedorId) erros.fornecedorId = 'Escolha o fornecedor'
+  if (!d.categoriaId) erros.categoriaId = 'Escolha a categoria'
+  if (!d.emissao) erros.emissao = 'Informe a emissão'
+  else if (d.emissao > hojeIso()) erros.emissao = 'A emissão não pode ser futura'
+  if (!d.vencto) erros.vencto = 'Informe o vencimento'
+  else if (d.emissao && d.vencto < d.emissao) erros.vencto = 'O vencimento não pode ser antes da emissão'
+  const valor = Number(d.valor.replace(/\./g, '').replace(',', '.'))
+  if (!d.valor || Number.isNaN(valor) || valor <= 0) erros.valor = 'Informe um valor maior que zero'
   return erros
 }
 
-export function FormularioConta({ conta, onFechar, onSalvo }: FormularioContaProps) {
+export function FormularioConta(props: FormularioContaProps) {
+  const { conta, fornecedores, categorias, onFechar, onSalvo } = props
   const editando = conta !== null
-  const [dados, setDados] = useState<DadosDigitados>(
-    conta
-      ? {
-          descricao: conta.descricao,
-          fornecedor: conta.fornecedor,
-          categoria: conta.categoria,
-          vencimento: conta.vencimento,
-          valor: String(conta.valor).replace('.', ','),
-        }
-      : VAZIO,
-  )
+  const [dados, setDados] = useState<DadosDigitados>(() => dadosIniciais(conta))
   const [erros, setErros] = useState<CamposErro>({})
   const [erroGeral, setErroGeral] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
   const primeiroCampo = useRef<HTMLInputElement>(null)
 
-  // Foca o primeiro campo e fecha com a tecla Esc
   useEffect(() => {
     primeiroCampo.current?.focus()
-    const aoTeclar = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onFechar()
-    }
-    window.addEventListener('keydown', aoTeclar)
-    return () => window.removeEventListener('keydown', aoTeclar)
-  }, [onFechar])
+  }, [])
 
-  function alterarCampo(campo: keyof DadosDigitados, valor: string) {
+  function alterar(campo: keyof DadosDigitados, valor: string) {
     setDados((anterior) => ({ ...anterior, [campo]: valor }))
     setErros((anterior) => ({ ...anterior, [campo]: undefined }))
+  }
+
+  // Cadastro rápido, para quando ainda não existe fornecedor/categoria na API
+  async function criarFornecedor() {
+    const nome = window.prompt('Nome do novo fornecedor:')?.trim()
+    if (!nome) return
+    try {
+      const novo = await cadastrosApi.novoFornecedor(nome)
+      props.onNovoFornecedor(novo)
+      alterar('fornecedorId', String(novo.registro))
+    } catch (e) {
+      setErroGeral(e instanceof ApiError ? e.message : 'Erro ao cadastrar fornecedor')
+    }
+  }
+
+  async function criarCategoria() {
+    const descricao = window.prompt('Nome da nova categoria (ex.: Energia elétrica):')?.trim()
+    if (!descricao) return
+    const codigo = window.prompt('Código no plano de contas (ex.: 2.1.01):')?.trim()
+    if (!codigo) return
+    try {
+      const nova = await cadastrosApi.novaCategoria(codigo, descricao)
+      props.onNovaCategoria(nova)
+      alterar('categoriaId', String(nova.planoContas))
+    } catch (e) {
+      setErroGeral(e instanceof ApiError ? e.message : 'Erro ao cadastrar categoria')
+    }
   }
 
   async function enviar(evento: FormEvent<HTMLFormElement>) {
     evento.preventDefault()
     setErroGeral(null)
 
-    const errosEncontrados = validar(dados)
-    if (Object.keys(errosEncontrados).length > 0) {
-      setErros(errosEncontrados)
+    const encontrados = validar(dados)
+    if (Object.keys(encontrados).length > 0) {
+      setErros(encontrados)
       return
     }
 
-    const corpo: ContaPagarForm = {
+    const corpo: PagamentoForm = {
+      titulo: dados.titulo.trim(),
       descricao: dados.descricao.trim(),
-      fornecedor: dados.fornecedor.trim(),
-      categoria: dados.categoria.trim(),
-      vencimento: dados.vencimento,
-      valor: Number(dados.valor.replace(',', '.')),
+      fornecedorId: Number(dados.fornecedorId),
+      categoriaId: Number(dados.categoriaId),
+      emissao: dados.emissao,
+      vencto: dados.vencto,
+      valor: Number(dados.valor.replace(/\./g, '').replace(',', '.')),
+      observacoes: dados.observacoes.trim() || null,
     }
 
     setEnviando(true)
     try {
-      const salva = editando ? await contasApi.alterar(conta.id, corpo) : await contasApi.cadastrar(corpo)
+      const salva = editando
+        ? await pagamentosApi.alterar(conta.titulo, corpo)
+        : await pagamentosApi.cadastrar(corpo)
       onSalvo(salva, editando)
-    } catch (erro) {
-      if (erro instanceof ApiError) {
-        setErroGeral(erro.message)
-        if (erro.campos) setErros(erro.campos)
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setErroGeral(e.message)
+        setErros(e.campos as CamposErro)
       } else {
         setErroGeral('Erro inesperado ao salvar')
       }
@@ -103,110 +146,104 @@ export function FormularioConta({ conta, onFechar, onSalvo }: FormularioContaPro
   }
 
   return (
-    <div className="modal__fundo" onClick={onFechar}>
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="titulo-formulario"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="modal__cabecalho">
-          <h2 id="titulo-formulario">{editando ? 'Editar conta' : 'Nova conta a pagar'}</h2>
-          <button type="button" className="modal__fechar" onClick={onFechar} aria-label="Fechar">
-            ×
-          </button>
-        </header>
+    <Modal titulo={editando ? 'Editar conta a pagar' : 'Nova conta a pagar'} onFechar={onFechar} largura={600}>
+      <form className="formulario" onSubmit={enviar} noValidate>
+        {erroGeral && (
+          <p className="formulario__erro-geral" role="alert">
+            {erroGeral}
+          </p>
+        )}
 
-        <form className="formulario" onSubmit={enviar} noValidate>
-          {erroGeral && (
-            <p className="formulario__erro-geral" role="alert">
-              {erroGeral}
-            </p>
-          )}
-
-          <Campo rotulo="Descrição" erro={erros.descricao} id="descricao">
+        <div className="formulario__linha formulario__linha--titulo">
+          <Campo id="titulo" rotulo="Título (nº do documento)" erro={erros.titulo}>
             <input
               ref={primeiroCampo}
+              id="titulo"
+              value={dados.titulo}
+              placeholder="NF-1023"
+              maxLength={20}
+              disabled={editando}
+              onChange={(e) => alterar('titulo', e.target.value)}
+            />
+          </Campo>
+          <Campo id="descricao" rotulo="Descrição" erro={erros.descricao}>
+            <input
               id="descricao"
               value={dados.descricao}
               placeholder="Conta de energia"
-              onChange={(e) => alterarCampo('descricao', e.target.value)}
+              onChange={(e) => alterar('descricao', e.target.value)}
             />
           </Campo>
+        </div>
 
-          <Campo rotulo="Fornecedor" erro={erros.fornecedor} id="fornecedor">
-            <input
-              id="fornecedor"
-              value={dados.fornecedor}
-              placeholder="Equatorial Goiás"
-              onChange={(e) => alterarCampo('fornecedor', e.target.value)}
-            />
-          </Campo>
-
-          <Campo rotulo="Categoria" erro={erros.categoria} id="categoria">
-            <input
-              id="categoria"
-              list="lista-categorias"
-              value={dados.categoria}
-              placeholder="Utilidades"
-              onChange={(e) => alterarCampo('categoria', e.target.value)}
-            />
-            <datalist id="lista-categorias">
-              {CATEGORIAS.map((c) => (
-                <option key={c} value={c} />
+        <Campo id="fornecedor" rotulo="Fornecedor" erro={erros.fornecedorId}>
+          <div className="campo__com-acao">
+            <select id="fornecedor" value={dados.fornecedorId} onChange={(e) => alterar('fornecedorId', e.target.value)}>
+              <option value="">Selecione...</option>
+              {fornecedores.map((f) => (
+                <option key={f.registro} value={f.registro}>
+                  {f.fornecedor}
+                </option>
               ))}
-            </datalist>
-          </Campo>
-
-          <div className="formulario__linha">
-            <Campo rotulo="Vencimento" erro={erros.vencimento} id="vencimento">
-              <input
-                id="vencimento"
-                type="date"
-                value={dados.vencimento}
-                onChange={(e) => alterarCampo('vencimento', e.target.value)}
-              />
-            </Campo>
-
-            <Campo rotulo="Valor (R$)" erro={erros.valor} id="valor">
-              <input
-                id="valor"
-                inputMode="decimal"
-                value={dados.valor}
-                placeholder="0,00"
-                onChange={(e) => alterarCampo('valor', e.target.value)}
-              />
-            </Campo>
+            </select>
+            <button type="button" className="botao botao--secundario" onClick={() => void criarFornecedor()}>
+              + Novo
+            </button>
           </div>
+        </Campo>
 
-          <footer className="formulario__acoes">
-            <button type="button" className="botao botao--secundario" onClick={onFechar}>
-              Cancelar
+        <Campo id="categoria" rotulo="Categoria (plano de contas)" erro={erros.categoriaId}>
+          <div className="campo__com-acao">
+            <select id="categoria" value={dados.categoriaId} onChange={(e) => alterar('categoriaId', e.target.value)}>
+              <option value="">Selecione...</option>
+              {categorias.map((c) => (
+                <option key={c.planoContas} value={c.planoContas}>
+                  {c.conta} – {nomeCategoria(c)}
+                </option>
+              ))}
+            </select>
+            <button type="button" className="botao botao--secundario" onClick={() => void criarCategoria()}>
+              + Nova
             </button>
-            <button type="submit" className="botao botao--primario" disabled={enviando}>
-              {enviando ? 'Salvando...' : editando ? 'Salvar alterações' : 'Cadastrar conta'}
-            </button>
-          </footer>
-        </form>
-      </div>
-    </div>
-  )
-}
+          </div>
+        </Campo>
 
-interface CampoProps {
-  id: string
-  rotulo: string
-  erro?: string
-  children: ReactNode
-}
+        <div className="formulario__linha formulario__linha--3">
+          <Campo id="emissao" rotulo="Emissão" erro={erros.emissao}>
+            <input id="emissao" type="date" value={dados.emissao} max={hojeIso()} onChange={(e) => alterar('emissao', e.target.value)} />
+          </Campo>
+          <Campo id="vencto" rotulo="Vencimento" erro={erros.vencto}>
+            <input id="vencto" type="date" value={dados.vencto} onChange={(e) => alterar('vencto', e.target.value)} />
+          </Campo>
+          <Campo id="valor" rotulo="Valor (R$)" erro={erros.valor}>
+            <input
+              id="valor"
+              inputMode="decimal"
+              value={dados.valor}
+              placeholder="0,00"
+              onChange={(e) => alterar('valor', e.target.value)}
+            />
+          </Campo>
+        </div>
 
-function Campo({ id, rotulo, erro, children }: CampoProps) {
-  return (
-    <div className={`campo ${erro ? 'campo--erro' : ''}`}>
-      <label htmlFor={id}>{rotulo}</label>
-      {children}
-      {erro && <span className="campo__mensagem">{erro}</span>}
-    </div>
+        <Campo id="observacoes" rotulo="Observações (opcional)" erro={erros.observacoes}>
+          <textarea
+            id="observacoes"
+            rows={2}
+            value={dados.observacoes}
+            onChange={(e) => alterar('observacoes', e.target.value)}
+          />
+        </Campo>
+
+        <footer className="formulario__acoes">
+          <button type="button" className="botao botao--secundario" onClick={onFechar}>
+            Cancelar
+          </button>
+          <button type="submit" className="botao botao--primario" disabled={enviando}>
+            {enviando ? 'Salvando...' : editando ? 'Salvar alterações' : 'Cadastrar conta'}
+          </button>
+        </footer>
+      </form>
+    </Modal>
   )
 }

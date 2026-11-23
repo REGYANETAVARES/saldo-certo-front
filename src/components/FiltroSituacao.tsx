@@ -2,9 +2,10 @@ import type { Filtro } from '../types/conta'
 
 const OPCOES: { valor: Filtro; rotulo: string }[] = [
   { valor: 'TODAS', rotulo: 'Todas' },
-  { valor: 'PENDENTE', rotulo: 'Pendentes' },
+  { valor: 'ABERTA', rotulo: 'Abertas' },
   { valor: 'VENCIDA', rotulo: 'Vencidas' },
   { valor: 'PAGA', rotulo: 'Pagas' },
+  { valor: 'CANCELADA', rotulo: 'Canceladas' },
 ]
 
 interface FiltroSituacaoProps {

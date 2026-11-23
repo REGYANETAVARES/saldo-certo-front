@@ -107,7 +107,7 @@ button, input { font: inherit; }
 }
 .botao:disabled { opacity: .6; cursor: wait; }
 .botao:focus-visible, .filtro__botao:focus-visible, .busca:focus-visible,
-.campo input:focus-visible, .menu__item:focus-visible {
+.campo input:focus-visible, .campo select:focus-visible, .campo textarea:focus-visible, .menu__item:focus-visible {
   outline: 3px solid #5fd3a8; outline-offset: 2px;
 }
 .botao--primario { background: var(--cor-destaque); color: #fff; }
@@ -176,14 +176,15 @@ button, input { font: inherit; }
 .tabela th.tabela__numero, .tabela__numero { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tabela__descricao { display: block; font-weight: 500; }
 .tabela__fornecedor { display: block; font-size: 13px; color: var(--cor-texto-suave); }
-.tabela__linha--paga .tabela__descricao, .tabela__linha--paga .tabela__numero { color: var(--cor-texto-suave); }
+.tabela__linha--fechada .tabela__descricao, .tabela__linha--fechada .tabela__numero { color: var(--cor-texto-suave); }
 .tabela__acoes { white-space: nowrap; }
 .tabela__acoes-grupo { display: flex; justify-content: flex-end; align-items: center; gap: 4px; }
 .tabela__pago-em { font-size: 13px; color: var(--cor-texto-suave); padding-right: 6px; }
 
 /* Selos de situação: cor + texto (não depende só da cor) */
 .selo { display: inline-block; font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 99px; }
-.selo--pendente { background: var(--cor-aviso-suave); color: var(--cor-aviso); }
+.selo--aberta { background: var(--cor-aviso-suave); color: var(--cor-aviso); }
+.selo--cancelada { background: #ecebe6; color: var(--cor-texto-suave); }
 .selo--vencida { background: var(--cor-alerta-suave); color: var(--cor-alerta); }
 .selo--paga { background: var(--cor-destaque-suave); color: var(--cor-destaque); }
 
@@ -227,10 +228,22 @@ button, input { font: inherit; }
 
 .campo { display: grid; gap: 6px; }
 .campo label { font-size: 13px; font-weight: 500; }
-.campo input {
-  padding: 10px 12px; border: 1px solid var(--cor-borda); border-radius: 8px; background: #fff;
+.campo input, .campo select, .campo textarea {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--cor-borda); border-radius: 8px; background: #fff; font: inherit;
 }
-.campo--erro input { border-color: var(--cor-alerta); }
+.campo input:disabled { background: var(--cor-fundo); color: var(--cor-texto-suave); }
+.campo textarea { resize: vertical; }
+.campo--erro input, .campo--erro select { border-color: var(--cor-alerta); }
+.campo__com-acao { display: flex; gap: 8px; }
+.campo__com-acao select { flex: 1; min-width: 0; }
+.campo__com-acao .botao { padding: 8px 12px; white-space: nowrap; }
+.formulario__linha--titulo { grid-template-columns: 180px 1fr; }
+.formulario__linha--3 { grid-template-columns: 1fr 1fr 1fr; }
+.quitacao__resumo {
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--cor-fundo); border-radius: 8px; padding: 12px 14px;
+}
+.quitacao__resumo strong { font-size: 18px; color: var(--cor-marca); }
 .campo__mensagem { font-size: 12px; color: var(--cor-alerta); }
 
 /* ---------- Aviso (toast) ---------- */
@@ -276,5 +289,5 @@ button, input { font: inherit; }
 
 @media (max-width: 520px) {
   .pagina__cabecalho { flex-direction: column; align-items: stretch; }
-  .formulario__linha { grid-template-columns: 1fr; }
+  .formulario__linha, .formulario__linha--titulo, .formulario__linha--3 { grid-template-columns: 1fr; }
 }

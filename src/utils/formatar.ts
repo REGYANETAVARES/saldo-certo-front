@@ -1,4 +1,4 @@
-import type { ContaPagar, SituacaoExibida } from '../types/conta'
+import type { Categoria, FormaPagamento, StatusConta } from '../types/conta'
 
 const moeda = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 
@@ -20,16 +20,28 @@ export function hojeIso(): string {
   return `${agora.getFullYear()}-${mes}-${dia}`
 }
 
-/** Pendente com vencimento antes de hoje = vencida. */
-export function situacaoExibida(conta: ContaPagar): SituacaoExibida {
-  if (conta.situacao === 'PENDENTE' && conta.vencimento < hojeIso()) {
-    return 'VENCIDA'
-  }
-  return conta.situacao
-}
-
-export const rotuloSituacao: Record<SituacaoExibida, string> = {
-  PENDENTE: 'Pendente',
+export const rotuloSituacao: Record<StatusConta, string> = {
+  ABERTA: 'Aberta',
   VENCIDA: 'Vencida',
   PAGA: 'Paga',
+  CANCELADA: 'Cancelada',
+}
+
+export const rotuloForma: Record<FormaPagamento, string> = {
+  PIX: 'Pix',
+  BOLETO: 'Boleto',
+  DINHEIRO: 'Dinheiro',
+  CARTAO: 'Cartão',
+  TRANSFERENCIA: 'Transferência',
+  CHEQUE: 'Cheque',
+  OUTRA: 'Outra',
+}
+
+export function nomeCategoria(categoria: Categoria): string {
+  return categoria.descricao ? categoria.descricao : categoria.conta
+}
+
+/** Conta ainda em aberto (aceita pagar, editar, cancelar e excluir). */
+export function emAberto(status: StatusConta): boolean {
+  return status === 'ABERTA' || status === 'VENCIDA'
 }

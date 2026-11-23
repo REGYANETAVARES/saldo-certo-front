@@ -2,35 +2,48 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Aviso, type AvisoDados } from '../components/Aviso'
 import { FiltroSituacao } from '../components/FiltroSituacao'
 import { FormularioConta } from '../components/FormularioConta'
+import { FormularioQuitacao } from '../components/FormularioQuitacao'
 import { ResumoCards } from '../components/ResumoCards'
 import { TabelaContas } from '../components/TabelaContas'
-import { ApiError, contasApi } from '../services/api'
-import type { ContaPagar, Filtro } from '../types/conta'
-import { situacaoExibida } from '../utils/formatar'
+import { ApiError, cadastrosApi, pagamentosApi } from '../services/api'
+import type { Categoria, Filtro, Fornecedor, Pagamento } from '../types/conta'
+import { nomeCategoria } from '../utils/formatar'
 
-// Controle do formulário: fechado, nova conta ou editando uma conta
-type EstadoFormulario = { aberto: false } | { aberto: true; conta: ContaPagar | null }
+// Qual janela está aberta: nenhuma, cadastro/edição ou registro de pagamento
+type Janela =
+  | { tipo: 'nenhuma' }
+  | { tipo: 'formulario'; conta: Pagamento | null }
+  | { tipo: 'quitacao'; conta: Pagamento }
 
 function mensagemDe(erro: unknown): string {
   return erro instanceof ApiError ? erro.message : 'Erro inesperado'
 }
 
 export function ContasPagarPage() {
-  const [contas, setContas] = useState<ContaPagar[]>([])
+  const [contas, setContas] = useState<Pagamento[]>([])
+  const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
+  const [categorias, setCategorias] = useState<Categoria[]>([])
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [filtro, setFiltro] = useState<Filtro>('TODAS')
   const [busca, setBusca] = useState('')
-  const [formulario, setFormulario] = useState<EstadoFormulario>({ aberto: false })
-  const [idEmAcao, setIdEmAcao] = useState<number | null>(null)
+  const [janela, setJanela] = useState<Janela>({ tipo: 'nenhuma' })
+  const [tituloEmAcao, setTituloEmAcao] = useState<string | null>(null)
   const [aviso, setAviso] = useState<AvisoDados | null>(null)
 
-  // GET /api/contas-pagar
+  // GET /api/pagamentos, /api/fornecedores e /api/plano-contas ao mesmo tempo
   const carregar = useCallback(async () => {
     setCarregando(true)
     setErro(null)
     try {
-      setContas(await contasApi.listar())
+      const [listaContas, listaFornecedores, listaCategorias] = await Promise.all([
+        pagamentosApi.listar(),
+        cadastrosApi.fornecedores(),
+        cadastrosApi.categorias(),
+      ])
+      setContas(listaContas)
+      setFornecedores(listaFornecedores)
+      setCategorias(listaCategorias)
     } catch (e) {
       setErro(mensagemDe(e))
     } finally {
@@ -42,64 +55,92 @@ export function ContasPagarPage() {
     void carregar()
   }, [carregar])
 
-  // Quantidade de contas em cada filtro (aparece nas abas)
+  // A API devolve só os ids; aqui transformamos em nomes para exibir
+  const nomeFornecedor = useCallback(
+    (id: number) => fornecedores.find((f) => f.registro === id)?.fornecedor ?? `Fornecedor ${id}`,
+    [fornecedores],
+  )
+  const nomeDaCategoria = useCallback(
+    (id: number) => {
+      const categoria = categorias.find((c) => c.planoContas === id)
+      return categoria ? nomeCategoria(categoria) : `Categoria ${id}`
+    },
+    [categorias],
+  )
+
   const contagem = useMemo(() => {
-    const total: Record<Filtro, number> = { TODAS: contas.length, PENDENTE: 0, VENCIDA: 0, PAGA: 0 }
+    const total: Record<Filtro, number> = { TODAS: contas.length, ABERTA: 0, VENCIDA: 0, PAGA: 0, CANCELADA: 0 }
     contas.forEach((c) => {
-      total[situacaoExibida(c)] += 1
+      total[c.status] += 1
     })
     return total
   }, [contas])
 
-  // Aplica o filtro de situação e a busca por texto
+  // Filtro por situação + busca por texto, ordenado por vencimento
   const contasVisiveis = useMemo(() => {
     const termo = busca.trim().toLowerCase()
-    return contas.filter((c) => {
-      const passaFiltro = filtro === 'TODAS' || situacaoExibida(c) === filtro
-      const passaBusca =
-        !termo || [c.descricao, c.fornecedor, c.categoria].some((t) => t.toLowerCase().includes(termo))
-      return passaFiltro && passaBusca
-    })
-  }, [contas, filtro, busca])
+    return contas
+      .filter((c) => filtro === 'TODAS' || c.status === filtro)
+      .filter(
+        (c) =>
+          !termo ||
+          [c.descricao, c.titulo, nomeFornecedor(c.fornecedorId), nomeDaCategoria(c.categoriaId)].some((t) =>
+            t.toLowerCase().includes(termo),
+          ),
+      )
+      .sort((a, b) => a.vencto.localeCompare(b.vencto))
+  }, [contas, filtro, busca, nomeFornecedor, nomeDaCategoria])
 
-  const fecharFormulario = useCallback(() => setFormulario({ aberto: false }), [])
+  const fecharJanela = useCallback(() => setJanela({ tipo: 'nenhuma' }), [])
   const limparAviso = useCallback(() => setAviso(null), [])
 
-  // Depois de POST ou PUT: atualiza a lista sem precisar recarregar tudo
-  function aoSalvar(salva: ContaPagar, editando: boolean) {
+  // Troca a conta alterada na lista (ou acrescenta, se for nova)
+  function substituir(conta: Pagamento) {
     setContas((lista) =>
-      editando ? lista.map((c) => (c.id === salva.id ? salva : c)) : [...lista, salva],
+      lista.some((c) => c.titulo === conta.titulo)
+        ? lista.map((c) => (c.titulo === conta.titulo ? conta : c))
+        : [...lista, conta],
     )
-    setFormulario({ aberto: false })
+  }
+
+  function aoSalvar(salva: Pagamento, editando: boolean) {
+    substituir(salva)
+    setJanela({ tipo: 'nenhuma' })
     setAviso({ tipo: 'sucesso', texto: editando ? 'Conta atualizada' : 'Conta cadastrada' })
   }
 
-  // PATCH /api/contas-pagar/{id}/pagar
-  async function pagar(conta: ContaPagar) {
-    setIdEmAcao(conta.id)
+  function aoPagar(paga: Pagamento) {
+    substituir(paga)
+    setJanela({ tipo: 'nenhuma' })
+    setAviso({ tipo: 'sucesso', texto: `"${paga.descricao}" marcada como paga` })
+  }
+
+  // PATCH /api/pagamentos/{titulo}/cancelar
+  async function cancelar(conta: Pagamento) {
+    if (!window.confirm(`Cancelar a conta "${conta.descricao}"? O registro fica no histórico.`)) return
+    setTituloEmAcao(conta.titulo)
     try {
-      const paga = await contasApi.pagar(conta.id)
-      setContas((lista) => lista.map((c) => (c.id === paga.id ? paga : c)))
-      setAviso({ tipo: 'sucesso', texto: `"${conta.descricao}" marcada como paga` })
+      substituir(await pagamentosApi.cancelar(conta.titulo))
+      setAviso({ tipo: 'sucesso', texto: 'Conta cancelada' })
     } catch (e) {
       setAviso({ tipo: 'erro', texto: mensagemDe(e) })
     } finally {
-      setIdEmAcao(null)
+      setTituloEmAcao(null)
     }
   }
 
-  // DELETE /api/contas-pagar/{id}
-  async function excluir(conta: ContaPagar) {
-    if (!window.confirm(`Excluir a conta "${conta.descricao}"?`)) return
-    setIdEmAcao(conta.id)
+  // DELETE /api/pagamentos/{titulo}
+  async function excluir(conta: Pagamento) {
+    if (!window.confirm(`Excluir definitivamente a conta "${conta.descricao}"?`)) return
+    setTituloEmAcao(conta.titulo)
     try {
-      await contasApi.excluir(conta.id)
-      setContas((lista) => lista.filter((c) => c.id !== conta.id))
+      await pagamentosApi.excluir(conta.titulo)
+      setContas((lista) => lista.filter((c) => c.titulo !== conta.titulo))
       setAviso({ tipo: 'sucesso', texto: 'Conta excluída' })
     } catch (e) {
       setAviso({ tipo: 'erro', texto: mensagemDe(e) })
     } finally {
-      setIdEmAcao(null)
+      setTituloEmAcao(null)
     }
   }
 
@@ -113,7 +154,7 @@ export function ContasPagarPage() {
         <button
           type="button"
           className="botao botao--primario"
-          onClick={() => setFormulario({ aberto: true, conta: null })}
+          onClick={() => setJanela({ tipo: 'formulario', conta: null })}
         >
           + Nova conta
         </button>
@@ -127,7 +168,7 @@ export function ContasPagarPage() {
           <input
             className="busca"
             type="search"
-            placeholder="Buscar por descrição, fornecedor..."
+            placeholder="Buscar por descrição, título, fornecedor..."
             aria-label="Buscar contas"
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
@@ -138,17 +179,32 @@ export function ContasPagarPage() {
           contas={contasVisiveis}
           carregando={carregando}
           erro={erro}
-          idEmAcao={idEmAcao}
+          tituloEmAcao={tituloEmAcao}
+          nomeFornecedor={nomeFornecedor}
+          nomeCategoria={nomeDaCategoria}
           onTentarNovamente={() => void carregar()}
-          onNovaConta={() => setFormulario({ aberto: true, conta: null })}
-          onEditar={(conta) => setFormulario({ aberto: true, conta })}
-          onPagar={(conta) => void pagar(conta)}
+          onNovaConta={() => setJanela({ tipo: 'formulario', conta: null })}
+          onEditar={(conta) => setJanela({ tipo: 'formulario', conta })}
+          onPagar={(conta) => setJanela({ tipo: 'quitacao', conta })}
+          onCancelar={(conta) => void cancelar(conta)}
           onExcluir={(conta) => void excluir(conta)}
         />
       </section>
 
-      {formulario.aberto && (
-        <FormularioConta conta={formulario.conta} onFechar={fecharFormulario} onSalvo={aoSalvar} />
+      {janela.tipo === 'formulario' && (
+        <FormularioConta
+          conta={janela.conta}
+          fornecedores={fornecedores}
+          categorias={categorias}
+          onNovoFornecedor={(f) => setFornecedores((lista) => [...lista, f])}
+          onNovaCategoria={(c) => setCategorias((lista) => [...lista, c])}
+          onFechar={fecharJanela}
+          onSalvo={aoSalvar}
+        />
+      )}
+
+      {janela.tipo === 'quitacao' && (
+        <FormularioQuitacao conta={janela.conta} onFechar={fecharJanela} onPago={aoPagar} />
       )}
 
       <Aviso aviso={aviso} onSumir={limparAviso} />

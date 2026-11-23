@@ -1,21 +1,24 @@
-import type { ContaPagar } from '../types/conta'
-import { formatarData, formatarMoeda, situacaoExibida } from '../utils/formatar'
+import type { Pagamento } from '../types/conta'
+import { emAberto, formatarData, formatarMoeda, rotuloForma } from '../utils/formatar'
 import { SeloSituacao } from './SeloSituacao'
 
 interface TabelaContasProps {
-  contas: ContaPagar[]
+  contas: Pagamento[]
   carregando: boolean
   erro: string | null
-  idEmAcao: number | null
+  tituloEmAcao: string | null
+  nomeFornecedor: (id: number) => string
+  nomeCategoria: (id: number) => string
   onTentarNovamente: () => void
   onNovaConta: () => void
-  onEditar: (conta: ContaPagar) => void
-  onPagar: (conta: ContaPagar) => void
-  onExcluir: (conta: ContaPagar) => void
+  onEditar: (conta: Pagamento) => void
+  onPagar: (conta: Pagamento) => void
+  onCancelar: (conta: Pagamento) => void
+  onExcluir: (conta: Pagamento) => void
 }
 
 export function TabelaContas(props: TabelaContasProps) {
-  const { contas, carregando, erro, idEmAcao } = props
+  const { contas, carregando, erro, tituloEmAcao } = props
 
   // Estado: carregando
   if (carregando) {
@@ -72,51 +75,64 @@ export function TabelaContas(props: TabelaContasProps) {
         </thead>
         <tbody>
           {contas.map((conta) => {
-            const situacao = situacaoExibida(conta)
-            const ocupada = idEmAcao === conta.id
+            const ocupada = tituloEmAcao === conta.titulo
+            const aberta = emAberto(conta.status)
             return (
-              <tr key={conta.id} className={situacao === 'PAGA' ? 'tabela__linha--paga' : ''}>
+              <tr key={conta.titulo} className={aberta ? '' : 'tabela__linha--fechada'}>
                 <td data-rotulo="Descrição">
                   <span className="tabela__descricao">{conta.descricao}</span>
-                  <span className="tabela__fornecedor">{conta.fornecedor}</span>
+                  <span className="tabela__fornecedor">
+                    {props.nomeFornecedor(conta.fornecedorId)} · título {conta.titulo}
+                  </span>
                 </td>
-                <td data-rotulo="Categoria">{conta.categoria}</td>
-                <td data-rotulo="Vencimento">{formatarData(conta.vencimento)}</td>
+                <td data-rotulo="Categoria">{props.nomeCategoria(conta.categoriaId)}</td>
+                <td data-rotulo="Vencimento">{formatarData(conta.vencto)}</td>
                 <td data-rotulo="Valor" className="tabela__numero">
-                  {formatarMoeda(conta.valor)}
+                  {formatarMoeda(conta.status === 'PAGA' && conta.valorQuitado !== null ? conta.valorQuitado : conta.valor)}
                 </td>
                 <td data-rotulo="Situação">
-                  <SeloSituacao situacao={situacao} />
+                  <SeloSituacao situacao={conta.status} />
                 </td>
                 <td className="tabela__acoes">
                   <div className="tabela__acoes-grupo">
-                  {conta.situacao === 'PENDENTE' ? (
-                    <>
-                      <button
-                        type="button"
-                        className="botao botao--pagar"
-                        disabled={ocupada}
-                        onClick={() => props.onPagar(conta)}
-                      >
-                        {ocupada ? 'Salvando...' : 'Pagar'}
-                      </button>
-                      <button type="button" className="botao botao--texto" onClick={() => props.onEditar(conta)}>
-                        Editar
-                      </button>
-                    </>
-                  ) : (
-                    <span className="tabela__pago-em">
-                      Paga em {conta.dataPagamento ? formatarData(conta.dataPagamento) : '-'}
-                    </span>
-                  )}
-                  <button
-                    type="button"
-                    className="botao botao--texto botao--perigo"
-                    disabled={ocupada}
-                    onClick={() => props.onExcluir(conta)}
-                  >
-                    Excluir
-                  </button>
+                    {aberta ? (
+                      <>
+                        <button
+                          type="button"
+                          className="botao botao--pagar"
+                          disabled={ocupada}
+                          onClick={() => props.onPagar(conta)}
+                        >
+                          {ocupada ? 'Salvando...' : 'Pagar'}
+                        </button>
+                        <button type="button" className="botao botao--texto" onClick={() => props.onEditar(conta)}>
+                          Editar
+                        </button>
+                        <button
+                          type="button"
+                          className="botao botao--texto"
+                          disabled={ocupada}
+                          onClick={() => props.onCancelar(conta)}
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          className="botao botao--texto botao--perigo"
+                          disabled={ocupada}
+                          onClick={() => props.onExcluir(conta)}
+                        >
+                          Excluir
+                        </button>
+                      </>
+                    ) : conta.status === 'PAGA' ? (
+                      <span className="tabela__pago-em">
+                        Paga em {conta.pagto ? formatarData(conta.pagto) : '-'}
+                        {conta.formaPagamento ? ` · ${rotuloForma[conta.formaPagamento]}` : ''}
+                      </span>
+                    ) : (
+                      <span className="tabela__pago-em">Conta cancelada</span>
+                    )}
                   </div>
                 </td>
               </tr>
